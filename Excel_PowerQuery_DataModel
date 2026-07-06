@@ -1,0 +1,968 @@
+FINAL UPDATED STEP-BY-STEP BLUEPRINT
+POWER QUERY YEARLY / WEEKLY SLA REPORT FROM SHAREPOINT RAW FOLDER
+=================================================================
+
+Prepared for: Akmal
+Status: Latest working design after folder re-organization, parameter setup, optimized Issue matching, and Sample File fix.
+Current confirmed result:
+- Yearly_SLA_Report loads successfully.
+- Current loaded rows: 22,852.
+- Helper queries are Connection Only.
+- Refresh is fast, below ~1 minute in current setup.
+- Pivot sheet is clean and working.
+
+
+================================================================================
+1. FINAL WORKBOOK DESIGN
+================================================================================
+
+Goal:
+Create one clean SLA report workbook that can read monthly/weekly report files from SharePoint RAW folder, transform the data, classify issues, flag duplicates, and feed PivotTables.
+
+Final design flow:
+
+SharePoint RAW folder
+    -> Power Query Source
+    -> Parameter-based folder/file filter
+    -> Combine monthly/weekly .xlsx files
+    -> Add calculated columns
+    -> Optimized Issue1 / Issue2 lookup using buffered helper queries
+    -> Add Duplicate flag using original Excel COUNTIF logic
+    -> Load final Yearly_SLA_Report
+    -> Build PivotTables and charts
+
+
+================================================================================
+2. FINAL QUERY LIST
+================================================================================
+
+Power Query contains these query groups/items:
+
+A. Auto-created Combine Files helper queries
+-------------------------------------------
+1. Parameter1 (Sample File)
+2. Sample File
+3. Transform File
+4. Transform Sample File
+
+These are created automatically when using Combine Files.
+Do not delete these queries.
+
+
+B. Original mapping queries
+---------------------------
+1. Tbl_Issue1
+2. Tbl_Issue2
+
+These come from the mapping table and should stay Connection Only.
+
+
+C. Optimized issue matching helper queries
+------------------------------------------
+1. Clean_Issue1_Map
+2. Clean_Issue2_Map
+3. Issue1_Records
+4. Issue2_Records
+
+These make Issue1 and Issue2 matching much faster.
+All must stay Connection Only.
+
+
+D. Main final report query
+--------------------------
+1. Yearly_SLA_Report
+
+This is the final transformed table used for reporting/PivotTables.
+
+
+E. Parameter queries
+--------------------
+1. pReportFolder
+2. pPeriodFolder
+3. pLoadMode
+4. pExactFileName
+
+These control which SharePoint folder/file Power Query reads.
+
+
+================================================================================
+3. FINAL LOAD SETTINGS
+================================================================================
+
+Use this exact load rule:
+
+Connection Only:
+- Parameter1 (Sample File)
+- Sample File
+- Transform File
+- Transform Sample File
+- Tbl_Issue1
+- Tbl_Issue2
+- Clean_Issue1_Map
+- Clean_Issue2_Map
+- Issue1_Records
+- Issue2_Records
+- pReportFolder
+- pPeriodFolder
+- pLoadMode
+- pExactFileName
+
+Final report:
+- Yearly_SLA_Report = final loaded report source
+
+Depending on workbook design:
+- If PivotTables are built from worksheet table, load Yearly_SLA_Report to worksheet.
+- If PivotTables are built from Data Model, set Yearly_SLA_Report as Only Create Connection + Add to Data Model.
+
+Current working screenshot shows:
+- Yearly_SLA_Report loaded with 22,852 rows.
+- Helper queries are Connection Only.
+
+
+================================================================================
+4. SHAREPOINT SITE AND FOLDER DESIGN
+================================================================================
+
+SharePoint site URL:
+
+https://ncrvoyix.sharepoint.com/sites/L2woolworthsmalaysia
+
+Old folder structure:
+
+Documents
+  -> Report
+     -> Monthly SLA Report
+        -> RAW
+
+New organized folder structure:
+
+Documents
+  -> Report
+     -> Yearly SLA Report
+        -> 2026
+           -> RAW
+
+Parameter formula supports future structure like:
+
+Documents
+  -> Report
+     -> Weekly SLA Report
+        -> Week 27
+           -> RAW
+
+Main rule:
+Folder structure must follow this pattern:
+
+Report / pReportFolder / pPeriodFolder / RAW
+
+Examples:
+
+Report / Yearly SLA Report / 2026 / RAW
+Report / Weekly SLA Report / Week 27 / RAW
+Report / Weekly SLA Report / 2026-W27 / RAW
+
+
+================================================================================
+5. IMPORTANT SHAREPOINT CONNECTION RULE
+================================================================================
+
+When connecting to SharePoint Folder connector, use only the site URL:
+
+https://ncrvoyix.sharepoint.com/sites/L2woolworthsmalaysia
+
+Do not use the long browser URL containing:
+
+Forms/AllItems.aspx?id=...
+
+Power Query should connect at site level first, then filter Folder Path.
+
+
+================================================================================
+6. PARAMETERS CREATED
+================================================================================
+
+Four parameters are used.
+
+
+Parameter 1: pReportFolder
+--------------------------
+Purpose:
+Choose top report folder name.
+
+Example values:
+- Yearly SLA Report
+- Weekly SLA Report
+
+Current working value:
+
+Yearly SLA Report
+
+Setup:
+- Name: pReportFolder
+- Type: Text
+- Current Value: Yearly SLA Report
+
+
+Parameter 2: pPeriodFolder
+--------------------------
+Purpose:
+Choose year/week folder.
+
+Example values:
+- 2026
+- Week 27
+- 2026-W27
+
+Current working value:
+
+2026
+
+Setup:
+- Name: pPeriodFolder
+- Type: Text
+- Current Value: 2026
+
+
+Parameter 3: pLoadMode
+----------------------
+Purpose:
+Choose whether Power Query reads all files in folder or one exact file.
+
+Allowed values:
+- Folder
+- Exact File
+
+Current working value:
+
+Folder
+
+Setup:
+- Name: pLoadMode
+- Type: Text
+- Suggested Values: List of values
+- Values:
+  - Folder
+  - Exact File
+- Current Value: Folder
+
+
+Parameter 4: pExactFileName
+---------------------------
+Purpose:
+Used only when pLoadMode = Exact File.
+If pLoadMode = Folder, this parameter is ignored.
+
+Current working value for Folder mode:
+
+IGNORE.xlsx
+
+Setup:
+- Name: pExactFileName
+- Type: Text
+- Current Value: IGNORE.xlsx
+
+Important:
+Because Power Query parameter is required, do not leave pExactFileName blank.
+Use IGNORE.xlsx or dummy.xlsx when pLoadMode = Folder.
+
+
+================================================================================
+7. PARAMETER FILTER FORMULA - MAIN QUERY
+================================================================================
+
+This formula must be applied in:
+
+Yearly_SLA_Report > Filtered Rows
+
+Final formula:
+
+= Table.SelectRows(
+    Source,
+    each
+        [Extension] = ".xlsx"
+        and Text.Contains(
+            [Folder Path],
+            "/Report/" & Text.Trim(Text.From(pReportFolder)) & "/" & Text.Trim(Text.From(pPeriodFolder)) & "/RAW/",
+            Comparer.OrdinalIgnoreCase
+        )
+        and (
+            if Text.Upper(Text.Trim(Text.From(pLoadMode))) = "EXACT FILE"
+            then [Name] = Text.Trim(Text.From(pExactFileName))
+            else true
+        )
+)
+
+
+What this formula does:
+
+If pLoadMode = Folder:
+- Load all .xlsx files inside:
+  /Report/pReportFolder/pPeriodFolder/RAW/
+- Ignore pExactFileName.
+
+If pLoadMode = Exact File:
+- Load only the file where [Name] equals pExactFileName.
+
+
+Example current folder mode setup:
+
+pReportFolder  = Yearly SLA Report
+pPeriodFolder  = 2026
+pLoadMode      = Folder
+pExactFileName = IGNORE.xlsx
+
+This loads all .xlsx files from:
+
+/Report/Yearly SLA Report/2026/RAW/
+
+
+Example exact file setup:
+
+pReportFolder  = Yearly SLA Report
+pPeriodFolder  = 2026
+pLoadMode      = Exact File
+pExactFileName = JAN2026_sla.xlsx
+
+This loads only:
+
+JAN2026_sla.xlsx
+
+
+================================================================================
+8. PARAMETER FILTER FORMULA - SAMPLE FILE QUERY
+================================================================================
+
+Very important fix:
+When changing the SharePoint folder path, it is not enough to update only Yearly_SLA_Report.
+The Sample File query must also use the same parameter filter.
+
+Why:
+Power Query Combine Files uses Sample File to understand the structure of the monthly files.
+If Sample File still points to old folder, Expanded Table Column1 will fail with an error.
+
+Error seen:
+
+An error occurred in the 'Sample File' query.
+Expression.Error: There weren't enough elements in the enumeration to complete the operation.
+Details:
+[Table]
+
+Root cause:
+Sample File query still used old folder path / old filter and returned zero files.
+
+Fix:
+Apply the same filter formula in:
+
+Sample File > Filtered Rows
+
+Formula:
+
+= Table.SelectRows(
+    Source,
+    each
+        [Extension] = ".xlsx"
+        and Text.Contains(
+            [Folder Path],
+            "/Report/" & Text.Trim(Text.From(pReportFolder)) & "/" & Text.Trim(Text.From(pPeriodFolder)) & "/RAW/",
+            Comparer.OrdinalIgnoreCase
+        )
+        and (
+            if Text.Upper(Text.Trim(Text.From(pLoadMode))) = "EXACT FILE"
+            then [Name] = Text.Trim(Text.From(pExactFileName))
+            else true
+        )
+)
+
+After applying this:
+- Sample File should return a valid Binary.
+- Transform Sample File should work.
+- Yearly_SLA_Report > Expanded Table Column1 should show actual SLA data columns.
+
+
+================================================================================
+9. HOW TO TROUBLESHOOT EMPTY TABLE AFTER FOLDER CHANGE
+================================================================================
+
+If Filtered Rows returns empty:
+
+Step 1:
+Click Source step in Yearly_SLA_Report.
+
+Step 2:
+Search Folder Path for:
+- Yearly
+- 2026
+- RAW
+
+Step 3:
+If Source still shows old path:
+- Click Refresh Preview.
+- If still old, close Power Query and run Data > Refresh All.
+- If still old, clear Power Query cache.
+
+Step 4:
+Confirm new SharePoint RAW folder contains at least one .xlsx file.
+Power Query lists files, not empty folders.
+
+Step 5:
+Once Source shows latest path, apply parameter formula to both:
+- Yearly_SLA_Report > Filtered Rows
+- Sample File > Filtered Rows
+
+
+================================================================================
+10. HOW TO TROUBLESHOOT BINARY / FILE LIST VIEW
+================================================================================
+
+At early applied steps, seeing Binary is normal.
+
+Expected behavior:
+
+Filtered Rows:
+- Shows file list.
+- Content column displays Binary.
+
+Filtered Hidden Files1:
+- Still shows file list.
+
+Invoke Custom Function1:
+- Applies Transform File to the binary content.
+
+Expanded Table Column1:
+- Should show actual SLA report columns.
+
+If Expanded Table Column1 errors:
+- Check Sample File query.
+- Make sure Sample File uses same parameter filter.
+- Make sure Sample File returns Binary.
+- Make sure Transform Sample File can open the sample report.
+
+
+================================================================================
+11. COMBINE FILES PROCESS
+================================================================================
+
+Detailed steps:
+
+1. After SharePoint folder files are filtered correctly, click Content column combine icon.
+2. Select correct sheet/table from the sample monthly report.
+3. Click OK.
+4. Power Query creates helper queries:
+   - Parameter1 (Sample File)
+   - Sample File
+   - Transform File
+   - Transform Sample File
+5. Do not delete these helper queries.
+6. Rename main query to:
+
+Yearly_SLA_Report
+
+7. Keep Source.Name column to identify which monthly file each row came from.
+
+
+================================================================================
+12. OPTIMIZED ISSUE MAPPING DESIGN
+================================================================================
+
+Original direct formulas worked but were slower because Power Query scanned Tbl_Issue1 and Tbl_Issue2 repeatedly for every SLA row.
+
+Optimization used:
+
+Tbl_Issue1
+  -> Clean_Issue1_Map
+      -> Issue1_Records
+
+Tbl_Issue2
+  -> Clean_Issue2_Map
+      -> Issue2_Records
+
+This made refresh much faster.
+
+
+================================================================================
+13. CREATE CLEAN_ISSUE1_MAP
+================================================================================
+
+1. Right-click Tbl_Issue1.
+2. Choose Reference.
+3. Rename to:
+
+Clean_Issue1_Map
+
+4. Open Advanced Editor.
+5. Use this code:
+
+let
+    Source = Tbl_Issue1,
+    KeepColumns = Table.SelectColumns(Source, {"Priority", "Keyword", "Keyword2", "Category"}),
+    ChangeTypes = Table.TransformColumnTypes(
+        KeepColumns,
+        {
+            {"Priority", Int64.Type},
+            {"Keyword", type text},
+            {"Keyword2", type text},
+            {"Category", type text}
+        }
+    ),
+    CleanText = Table.TransformColumns(
+        ChangeTypes,
+        {
+            {"Keyword", each if _ = null then "" else Text.Lower(Text.Trim(Text.From(_))), type text},
+            {"Keyword2", each if _ = null then "" else Text.Lower(Text.Trim(Text.From(_))), type text},
+            {"Category", each if _ = null then "Others Issues" else Text.Trim(Text.From(_)), type text}
+        }
+    ),
+    RemoveBlankKeyword = Table.SelectRows(CleanText, each [Keyword] <> "")
+in
+    RemoveBlankKeyword
+
+6. Set load to Connection Only.
+
+
+================================================================================
+14. CREATE CLEAN_ISSUE2_MAP
+================================================================================
+
+1. Right-click Tbl_Issue2.
+2. Choose Reference.
+3. Rename to:
+
+Clean_Issue2_Map
+
+4. Open Advanced Editor.
+5. Use this code:
+
+let
+    Source = Tbl_Issue2,
+    KeepColumns = Table.SelectColumns(Source, {"Priority", "Keyword", "Keyword2", "Category"}),
+    ChangeTypes = Table.TransformColumnTypes(
+        KeepColumns,
+        {
+            {"Priority", Int64.Type},
+            {"Keyword", type text},
+            {"Keyword2", type text},
+            {"Category", type text}
+        }
+    ),
+    CleanText = Table.TransformColumns(
+        ChangeTypes,
+        {
+            {"Keyword", each if _ = null then "" else Text.Lower(Text.Trim(Text.From(_))), type text},
+            {"Keyword2", each if _ = null then "" else Text.Lower(Text.Trim(Text.From(_))), type text},
+            {"Category", each if _ = null then "Others Issues" else Text.Trim(Text.From(_)), type text}
+        }
+    ),
+    RemoveBlankKeyword = Table.SelectRows(CleanText, each [Keyword] <> "")
+in
+    RemoveBlankKeyword
+
+6. Set load to Connection Only.
+
+
+================================================================================
+15. CREATE ISSUE1_RECORDS
+================================================================================
+
+1. Right-click Clean_Issue1_Map.
+2. Choose Reference.
+3. Rename to:
+
+Issue1_Records
+
+4. Open Advanced Editor.
+5. Use this code:
+
+let
+    Source = Clean_Issue1_Map,
+    BufferedTable = Table.Buffer(Source),
+    Records = List.Buffer(Table.ToRecords(BufferedTable))
+in
+    Records
+
+6. Set load to Connection Only.
+
+Note:
+This query returns a list, not a normal table. That is expected.
+
+
+================================================================================
+16. CREATE ISSUE2_RECORDS
+================================================================================
+
+1. Right-click Clean_Issue2_Map.
+2. Choose Reference.
+3. Rename to:
+
+Issue2_Records
+
+4. Open Advanced Editor.
+5. Use this code:
+
+let
+    Source = Clean_Issue2_Map,
+    BufferedTable = Table.Buffer(Source),
+    Records = List.Buffer(Table.ToRecords(BufferedTable))
+in
+    Records
+
+6. Set load to Connection Only.
+
+Note:
+This query returns a list, not a normal table. That is expected.
+
+
+================================================================================
+17. ADD CLOSEDMONTH COLUMN
+================================================================================
+
+Original Excel formula:
+
+=TEXT([@Closed],"MMMM")
+
+Power Query column name:
+
+ClosedMonth
+
+Recommended formula:
+
+if [Closed] = null then null else Date.MonthName(Date.From([Closed]))
+
+Steps:
+1. Select Yearly_SLA_Report.
+2. Add Column > Custom Column.
+3. Column name: ClosedMonth.
+4. Paste formula above.
+5. Click OK.
+
+
+================================================================================
+18. ADD ALERT/NON-ALERT COLUMN
+================================================================================
+
+Problem fixed:
+Opened by can be blank/null.
+Blank/null Opened by previously caused error.
+
+Power Query column name:
+
+Alert/Non-Alert
+
+Final formula:
+
+if [Opened by] = null or Text.Trim(Text.From([Opened by])) = "" then
+    "Raise by User"
+else if Text.Contains(Text.From([Opened by]), "Splunk", Comparer.OrdinalIgnoreCase) then
+    "Alert"
+else
+    "Raise by User"
+
+Expected result:
+- Blank Opened by = Raise by User
+- Contains Splunk = Alert
+- All others = Raise by User
+
+
+================================================================================
+19. ADD ISSUE1 COLUMN
+================================================================================
+
+Power Query column name:
+
+Issue1
+
+Optimized formula:
+
+let
+    desc = if [Short description] = null then "" else Text.Lower(Text.From([Short description])),
+    matchedRows =
+        List.Select(
+            Issue1_Records,
+            (r) =>
+                Text.Contains(desc, r[Keyword])
+                and (
+                    r[Keyword2] = ""
+                    or Text.Contains(desc, r[Keyword2])
+                )
+        )
+in
+    if List.IsEmpty(matchedRows)
+    then "Others Issues"
+    else matchedRows{0}[Category]
+
+Logic:
+- Read Issue1_Records from top to bottom.
+- First match wins.
+- Keyword must match.
+- Keyword2 is optional.
+- If no match, return Others Issues.
+
+
+================================================================================
+20. ADD ISSUE2 COLUMN
+================================================================================
+
+Power Query column name:
+
+Issue2
+
+Optimized formula:
+
+let
+    desc = if [Short description] = null then "" else Text.Lower(Text.From([Short description])),
+    matchedRows =
+        List.Select(
+            Issue2_Records,
+            (r) =>
+                Text.Contains(desc, r[Keyword])
+                and (
+                    r[Keyword2] = ""
+                    or Text.Contains(desc, r[Keyword2])
+                )
+        )
+in
+    if List.IsEmpty(matchedRows)
+    then "Others Issues"
+    else matchedRows{0}[Category]
+
+Logic:
+- Read Issue2_Records from top to bottom.
+- First match wins.
+- Keyword must match.
+- Keyword2 is optional.
+- If no match, return Others Issues.
+
+
+================================================================================
+21. ADD ISSUES COLUMN
+================================================================================
+
+Original Excel formula:
+
+=TEXTJOIN("_", TRUE, [@Issue1], [@Issue2])
+
+Option A - Merge Columns UI:
+1. Hold Ctrl.
+2. Select Issue1.
+3. Select Issue2.
+4. Add Column > Merge Columns.
+5. Separator = Custom.
+6. Type:
+
+_
+
+7. New column name:
+
+Issues
+
+8. Click OK.
+
+Option B - Custom Column formula:
+
+Text.Combine({[Issue1], [Issue2]}, "_")
+
+
+================================================================================
+22. ADD DUPLICATE COLUMN
+================================================================================
+
+Original Excel formula:
+
+=IF(COUNTIF($A$2:[@[Number]],[@[Number]])=1,"No","Duplicate")
+
+Meaning:
+- First time Number appears = No.
+- Second time onward = Duplicate.
+
+Power Query steps:
+
+1. Add Column > Index Column > From 1.
+2. Rename Index to OriginalRow.
+3. Home > Group By.
+4. Choose Advanced.
+5. Group by: Number.
+6. New column name: AllRows.
+7. Operation: All Rows.
+8. Click OK.
+9. Add Column > Custom Column.
+10. New column name: WithOccurrence.
+11. Formula:
+
+Table.AddIndexColumn(
+    Table.Sort([AllRows], {{"OriginalRow", Order.Ascending}}),
+    "Occurrence",
+    1,
+    1,
+    Int64.Type
+)
+
+12. Remove AllRows.
+13. Expand WithOccurrence.
+14. Untick Number because Number already exists.
+15. Keep OriginalRow and Occurrence.
+16. Untick Use original column name as prefix.
+17. Add Custom Column named Duplicate.
+18. Formula:
+
+if [Occurrence] = 1 then "No" else "Duplicate"
+
+19. Sort OriginalRow ascending.
+20. Remove helper columns OriginalRow and Occurrence.
+
+
+================================================================================
+23. FINAL PIVOT REPORT CURRENT SETUP
+================================================================================
+
+Current Pivot sheet contains:
+
+Pivot 1:
+- Rows: ClosedMonth
+- Columns: Alert/Non-Alert
+- Values: Count of Number
+- Filter: Duplicate
+
+Pivot 2:
+- Rows: Issues / Issue category detail
+- Columns: ClosedMonth
+- Values: Count of Number
+- Filters include Alert/Non-Alert and Duplicate
+
+Chart:
+- Based on Count of Number
+- Split by Alert and Raise by User
+- Month displayed on axis
+
+Current screenshot confirms:
+- January to June data visible.
+- Grand Total: 22,852.
+- Alert total: 9,875.
+- Raise by User total: 12,977.
+- Helper queries are Connection Only.
+- Yearly_SLA_Report loads correctly.
+
+
+================================================================================
+24. MONTHLY REFRESH PROCESS
+================================================================================
+
+When a new monthly report is ready:
+
+1. Save new .xlsx file into:
+
+Documents / Report / Yearly SLA Report / 2026 / RAW
+
+2. Open the Excel report workbook.
+3. Confirm parameters:
+
+pReportFolder  = Yearly SLA Report
+pPeriodFolder  = 2026
+pLoadMode      = Folder
+pExactFileName = IGNORE.xlsx
+
+4. Go to Data tab.
+5. Click Refresh All.
+6. Power Query reads all files in RAW folder.
+7. Power Query combines files and applies transformations.
+8. PivotTables refresh/report updated.
+
+
+================================================================================
+25. WEEKLY REPORT USE CASE
+================================================================================
+
+If using weekly folder:
+
+Example folder:
+
+Documents / Report / Weekly SLA Report / Week 27 / RAW
+
+Set parameters:
+
+pReportFolder  = Weekly SLA Report
+pPeriodFolder  = Week 27
+pLoadMode      = Folder
+pExactFileName = IGNORE.xlsx
+
+Then Refresh All.
+
+If using exact file:
+
+pReportFolder  = Weekly SLA Report
+pPeriodFolder  = Week 27
+pLoadMode      = Exact File
+pExactFileName = Weekly_SLA_Week27.xlsx
+
+Then Refresh All.
+
+
+================================================================================
+26. IMPORTANT DO NOT DO LIST
+================================================================================
+
+Do not delete these Combine Files helper queries:
+- Parameter1 (Sample File)
+- Sample File
+- Transform File
+- Transform Sample File
+
+Do not delete these mapping/helper queries:
+- Tbl_Issue1
+- Tbl_Issue2
+- Clean_Issue1_Map
+- Clean_Issue2_Map
+- Issue1_Records
+- Issue2_Records
+
+Do not load helper queries to worksheet.
+Do not add helper queries to Data Model unless deliberately needed.
+
+Do not rename these source columns unless formulas are updated:
+- Number
+- Short description
+- Opened by
+- Closed
+
+Do not update only Yearly_SLA_Report folder filter when folder changes.
+Also update Sample File folder filter.
+
+Do not leave pExactFileName blank.
+Use IGNORE.xlsx when pLoadMode is Folder.
+
+Do not use simple Count Rows duplicate method if the requirement is original running COUNTIF behavior.
+
+
+================================================================================
+27. FINAL CONFIRMED OUTCOME
+================================================================================
+
+Latest working setup includes:
+
+- New organized SharePoint folder path:
+  Report / Yearly SLA Report / 2026 / RAW
+
+- Parameters added:
+  pReportFolder
+  pPeriodFolder
+  pLoadMode
+  pExactFileName
+
+- Main Yearly_SLA_Report filter updated.
+
+- Sample File filter also updated to parameter formula.
+
+- Issue1 and Issue2 matching optimized using:
+  Clean_Issue1_Map
+  Clean_Issue2_Map
+  Issue1_Records
+  Issue2_Records
+
+- Alert/Non-Alert fixed for blank Opened by.
+
+- Duplicate follows original Excel running COUNTIF logic.
+
+- Report loads fast and clean.
+
+- Current successful loaded row count: 22,852.
+
+END OF FINAL UPDATED BLUEPRINT
+==============================
