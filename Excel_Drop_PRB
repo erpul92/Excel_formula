@@ -1,0 +1,170 @@
+================================================================================
+EXCEL POWER QUERY BLUEPRINT: SMART SERVICENOW TICKET TRACKER (DATABASE STYLE)
+================================================================================
+This blueprint guides you through setting up a self-referencing "UPSERT" 
+tracking system in Excel using Power Query. 
+
+Key Capabilities:
+1. Automatically updates changed statuses for existing PRBs.
+2. Automatically appends new PRBs from fresh exports.
+3. Preserves historic PRBs even after they drop off the ServiceNow export.
+4. Securely locks manual notes (Category, Issue, Workaround, Version Fix) to 
+   the unique PRB Number so they never shift or misalign.
+
+--------------------------------------------------------------------------------
+PHASE 1: PREPARE YOUR EXCEL SHEETS
+--------------------------------------------------------------------------------
+Create two distinct worksheets in a single Excel workbook:
+
+1. Worksheet Name: ServiceNow_Drop
+   - Paste your current raw ServiceNow export here.
+   - Headers MUST include: PRB Number, PRB Created, PRB Updated, Short description, 
+     Problem Owner, Assigned to, Assignment group, State, Closed.
+   - Select all the data (including headers) and press CTRL + T.
+   - Go to the 'Table Design' tab on the top ribbon.
+   - On the far left, rename the table to: ServiceNow_Raw
+
+2. Worksheet Name: Master_Tracker
+   - This is your initial tracking sheet. It must contain the same ServiceNow 
+     headers, plus your 4 custom manual columns: Category, Issue, Workaround, 
+     Version Fix.
+   - Select all data (including headers) and press CTRL + T.
+   - Go to the 'Table Design' tab on the top ribbon.
+   - On the far left, rename the table to: Master_Table
+
+--------------------------------------------------------------------------------
+PHASE 2: LOAD TABLES INTO POWER QUERY AS CONNECTIONS ONLY
+--------------------------------------------------------------------------------
+Introduce both tables to Power Query without generating duplicate sheets yet.
+
+1. Load ServiceNow Data:
+   - Click any cell inside the 'ServiceNow_Raw' table.
+   - Go to the 'Data' tab on the top Excel ribbon.
+   - Click 'From Table/Range' (or 'From Sheet'). The Power Query Editor will open.
+   - Do not make any edits yet. In the top-left corner, click the arrow next to 
+     'Close & Load' and select 'Close & Load To...'.
+   - In the popup dialog, select 'Only Create Connection' and click OK.
+
+2. Load Master Data:
+   - Click any cell inside the 'Master_Table' table.
+   - Go to the 'Data' tab on the top Excel ribbon.
+   - Click 'From Table/Range'.
+   - In the top-left corner, click the arrow next to 'Close & Load' and select 
+     'Close & Load To...'.
+   - Select 'Only Create Connection' and click OK.
+
+* Verification: You will now see both 'ServiceNow_Raw' and 'Master_Table' listed 
+  in the 'Queries & Connections' side pane on the right of your Excel screen.
+
+--------------------------------------------------------------------------------
+PHASE 3: CREATE QUERY #1 - ISOLATE THE "VANISHED" PRBS (SAFETY NET)
+--------------------------------------------------------------------------------
+This query identifies historical PRBs that are no longer part of your live 
+ServiceNow export files, preventing data loss.
+
+1. In the right-side 'Queries & Connections' pane, RIGHT-CLICK 'Master_Table' 
+   and select 'Reference'. The Power Query Editor will open.
+2. In the left-side Queries pane, double-click this new query and rename it to:
+   Vanished_PRBs
+3. In the 'Home' tab at the top ribbon, click 'Merge Queries'.
+4. In the middle dropdown menu of the Merge window, select: ServiceNow_Raw
+5. Map the unique keys: Click the 'PRB Number' column header in the top preview, 
+   then click the 'PRB Number' column header in the bottom preview. A green 
+   checkmark will appear indicating a successful match.
+6. Look for 'Join Kind' at the bottom of the window. Change it to:
+   Left Anti (rows only in first)
+7. Click OK.
+8. Scroll to the far right of the table preview. You will see a column named 
+   'ServiceNow_Raw' filled with 'Table' values. RIGHT-CLICK that column header 
+   and select 'Remove'. (We only used it as a filter; the data itself isn't needed).
+
+--------------------------------------------------------------------------------
+PHASE 4: CREATE QUERY #2 - THE MAIN UPDATER (FINAL_TRACKER)
+--------------------------------------------------------------------------------
+This query pulls the fresh ServiceNow data and aligns your historical manual 
+notes safely alongside it, performing automatic status updates.
+
+1. In the left-side Queries pane of the Power Query Editor, RIGHT-CLICK your 
+   original 'ServiceNow_Raw' query and select 'Reference'.
+2. Double-click this new query at the bottom of the list and rename it to:
+   Final_Tracker
+3. In the 'Home' tab at the top ribbon, click 'Merge Queries'.
+4. In the middle dropdown menu of the Merge window, select: Master_Table
+5. Map the unique keys: Click the 'PRB Number' column header in both the top 
+   and bottom preview boxes.
+6. Ensure the 'Join Kind' is set to: 
+   Left Outer (all from first, matching from second)
+7. Click OK.
+8. Scroll to the far right to find the new 'Master_Table' column. Click the 
+   'Expand' icon (two small opposing arrows) in the column header.
+9. UNCHECK the box for "Use original column name as prefix".
+10. UNCHECK all columns EXCEPT your 4 manual annotation columns: 
+    Check ONLY 'Category', 'Issue', 'Workaround', and 'Version Fix'. 
+11. Click OK.
+
+--------------------------------------------------------------------------------
+PHASE 5: COMBINE THE DATA (THE APPEND STEP)
+--------------------------------------------------------------------------------
+Bring back your historical "vanished" items to create a unified database.
+
+1. While still working inside the 'Final_Tracker' query, go to the 'Home' tab 
+   and click 'Append Queries'.
+2. In the popup window, leave it selected as 'Two tables'.
+3. In the dropdown menu for the table to append, select: Vanished_PRBs
+4. Click OK.
+5. (Optional but Recommended): Click the drop-down arrow on the 'PRB Number' 
+   column header and select 'Sort Ascending' so your table stays organized numerically.
+
+--------------------------------------------------------------------------------
+PHASE 6: OUTPUT AND LOCK THE LOOP (DO THIS ONLY ONCE)
+--------------------------------------------------------------------------------
+Establish the closed loop environment so Power Query reads and writes from the 
+exact same sheet.
+
+1. In the top-left corner of the Power Query window, click the main 
+   'Close & Load' button.
+2. Power Query will close and compile. A brand new worksheet tab will be generated 
+   containing your final database table.
+3. Clean up the workbook to avoid confusion:
+   - Locate your original 'Master_Tracker' worksheet (the one you had before starting).
+   - RIGHT-CLICK that worksheet tab and choose DELETE.
+4. Go to the NEW worksheet tab just generated by Power Query:
+   - Rename the worksheet tab to: Master_Tracker
+   - Click any cell inside the newly generated table.
+   - Go to the 'Table Design' tab on the top ribbon.
+   - On the far left, rename this table to exactly: Master_Table
+
+The database loop is now complete and active.
+
+================================================================================
+HOW TO USE AND MAINTAIN YOUR SMART SYSTEM MOVING FORWARD
+================================================================================
+
+1. UPDATING WITH NEW SERVICENOW DATA (Weekly/Monthly):
+   - Open your fresh export from ServiceNow. Copy only the data rows (do not 
+     copy headers).
+   - Go to your 'ServiceNow_Drop' sheet. Select all old data rows below the 
+     headers and press 'Delete'.
+   - Paste your new data into the first empty row below the headers. The 
+     Excel table will auto-expand.
+   - Navigate to your 'Master_Tracker' sheet, RIGHT-CLICK anywhere inside the 
+     table, and click 'Refresh'.
+   - Statuses will update, new PRBs appear, vanished items remain, and your 
+     notes stay perfectly preserved.
+
+2. ADDING/EDITING MANUAL NOTES:
+   - Type your notes ('Category', 'Issue', 'Workaround', 'Version Fix') directly 
+     inside the 'Master_Tracker' sheet. 
+   - Power Query reads what you type here, caches it safely during a refresh, 
+     and writes it back. Never type notes on the raw drop sheet.
+
+3. PERMANENTLY DELETING OLD DATA (Housecleaning):
+   - Because the system acts as an absolute archive, deleting a PRB from the 
+     raw drop sheet will not remove it from your tracker (it will just be marked 
+     as vanished and kept alive).
+   - To completely destroy an old row (e.g., tickets older than 1 year):
+     A. Ensure the item is no longer in your active ServiceNow raw export.
+     B. Go to the 'Master_Tracker' table, RIGHT-CLICK the specific row you 
+        want gone, and select Delete > Table Rows.
+     C. Click 'Refresh'. The row is now permanently purged from the system.
+================================================================================
