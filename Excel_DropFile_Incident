@@ -1,0 +1,143 @@
+================================================================================
+EXCEL POWER QUERY BLUEPRINT: V2 (PURE ENGINE STYLE)
+================================================================================
+This blueprint guides you through setting up an advanced self-referencing 
+"UPSERT" tracking database where all calculated columns (Duplicate flags, 
+INDEX/MATCH equivalents, and TEXTJOIN text merging) run completely inside 
+the Power Query engine instead of standard Excel cells. 
+This prevents your custom formulas from breaking or refusing to auto-update 
+when data refreshes.
+Key Strategy & Data Roles:
+- MANUAL COLUMN (User-driven): "Comment" (Typed directly into the final sheet)
+- ENGINE COLUMNS (System-calculated): "Duplicate", "Issue1", "Issue2", "Issues"
+  (Calculated dynamically on refresh inside Power Query)
+--------------------------------------------------------------------------------
+PHASE 1: PREPARE YOUR EXCEL TABLES
+--------------------------------------------------------------------------------
+Set up your Excel workbook with three distinct worksheets before starting:
+1. Worksheet Name: ServiceNow_Drop
+   - Paste your raw ServiceNow export here.
+   - Headers MUST include: Number, Short description, Priority, State, etc.
+   - Select all the data rows + headers and press CTRL + T.
+   - Go to the 'Table Design' tab on the ribbon and rename it to: ServiceNow_Raw
+2. Worksheet Name: Master_Tracker
+   - This will be your long-term database sheet.
+   - Initially, set up the identical ServiceNow headers plus ONE manual column
+     named exactly: Comment
+   - Select the data and press CTRL + T.
+   - Go to the 'Table Design' tab on the ribbon and rename it to: Master_Table
+3. Worksheet Name: Mapping_Tables
+   - Create your two distinct keyword lookup matrices here.
+   - Table 1 Headers: Priority | Keyword | Keyword2 | Category
+     Select data, press CTRL + T, rename table to: Tbl_Issue1
+   - Table 2 Headers: Priority | Keyword | Keyword2 | Category
+     Select data, press CTRL + T, rename table to: Tbl_Issue2
+--------------------------------------------------------------------------------
+PHASE 2: LOAD MAPPING TABLES AS CONNECTIONS ONLY
+--------------------------------------------------------------------------------
+Introduce your reference data to the Power Query workspace.
+1. Click any cell inside the 'Tbl_Issue1' table.
+2. Go to the 'Data' tab on the ribbon -> click 'From Table/Range'.
+3. In the Power Query editor, click the arrow next to 'Close & Load' (top-left)
+   and select 'Close & Load To...'.
+4. In the popup, choose 'Only Create Connection' and click OK.
+5. Repeat these identical steps for 'Tbl_Issue2'.
+--------------------------------------------------------------------------------
+PHASE 3: THE "VANISHED" SAFETY NET (QUERY #1)
+--------------------------------------------------------------------------------
+This isolates older tickets that dropped off your fresh ServiceNow dump file 
+to protect them from being deleted on refresh.
+1. In the right-side 'Queries & Connections' pane, RIGHT-CLICK 'Master_Table' 
+   and select 'Reference'.
+2. Rename this new query in the properties pane to: Vanished_PRBs
+3. Go to the 'Home' tab -> click 'Merge Queries'.
+4. In the dropdown menu, select: ServiceNow_Raw
+5. Map the unique keys: Click the 'Number' column in the top table preview, 
+   then click the 'Number' column in the bottom preview.
+6. Change 'Join Kind' at the bottom to: Left Anti (rows only in first)
+7. Click OK.
+8. Scroll to the far right, RIGHT-CLICK the new 'ServiceNow_Raw' column header
+   and select 'Remove'.
+9. Click the arrow next to 'Close & Load' -> select 'Close & Load To...'.
+10. Choose 'Only Create Connection' and click OK.
+--------------------------------------------------------------------------------
+PHASE 4: THE MAIN UPDATER LOOP (QUERY #2)
+--------------------------------------------------------------------------------
+This creates the main pipeline that reads fresh ServiceNow data and aligns it
+with historical manual comments.
+1. In the right pane, RIGHT-CLICK your original 'ServiceNow_Raw' query and 
+   select 'Reference'.
+2. Rename this query to exactly: Final_Tracker
+3. Go to the 'Home' tab -> click 'Merge Queries'.
+4. In the dropdown menu, select: Master_Table
+5. Map the unique keys: Click the 'Number' column in both previews.
+6. Ensure 'Join Kind' is set to: Left Outer (all from first, matching from second)
+7. Click OK.
+8. Scroll to the far right to find the 'Master_Table' column. Click the 'Expand'
+   icon (two opposing arrows) in the column header.
+9. UNCHECK the box for "Use original column name as prefix".
+10. UNCHECK all columns EXCEPT your manual tracking column: Comment
+11. Click OK.
+12. Go to the 'Home' tab -> click 'Append Queries'.
+13. Select 'Two tables', and in the dropdown choose: Vanished_PRBs
+14. Click OK.
+--------------------------------------------------------------------------------
+PHASE 5: THE FORMULA ENGINE (ADD DYNAMIC CALCULATIONS)
+--------------------------------------------------------------------------------
+Run these steps sequentially at the end of your 'Final_Tracker' query to build
+your logic calculations without using cell formulas:
+
+Step A: The "Duplicate" Flag (Replaces =COUNTIF)
+1. Go to the 'Home' tab -> click 'Group By'.
+2. Set 'Group by' to: Number
+3. Setup Aggregation 1: New Column = Count | Operation = Count Rows
+4. Setup Aggregation 2: Click 'Add aggregation' -> New Column = AllData | 
+   Operation = All Rows. Click OK.
+5. Go to the 'AllData' column header, click the Expand icon, UNCHECK 'Number', 
+   leave all other fields checked, UNCHECK prefix, and click OK.
+6. Go to 'Add Column' tab -> click 'Conditional Column'. Name it: Duplicate
+7. Rule: If 'Count' is greater than 1, then 'Duplicate', else 'No'. Click OK.
+8. Right-click the temporary 'Count' column header and select 'Remove'.
+
+Step B: The Priority Keyword Matcher (Replaces =INDEX/MATCH/SEARCH array)
+1. Go to 'Add Column' tab -> click 'Custom Column'. Name it: Clean_Issue1
+2. Paste the M-code search engine expression exactly into the box:
+
+   Table.FirstN(Table.SelectRows(Tbl_Issue1, (k) => Text.Contains([Short description], k[Keyword], Order.IgnoreCase) and (k[Keyword2] = null or Text.Contains([Short description], k[Keyword2], Order.IgnoreCase))), 1)
+
+3. Click OK. (This generates a column of clean, single-row sub-tables).
+4. Click the Expand icon on 'Clean_Issue1'. Check ONLY 'Category'. Uncheck prefix.
+5. Go to 'Transform' tab -> click 'Replace Values'. 
+   Value to Find: null | Replace With: Others Issues. Click OK.
+6. Repeat the exact 5 actions above for your second lookup matrix, naming the 
+   custom column 'Clean_Issue2' and typing 'Tbl_Issue2' inside the M-code block.
+
+Step C: The String Concatenation (Replaces =TEXTJOIN)
+1. Hold down your Ctrl key and highlight both of your newly expanded category 
+   text columns (from Clean_Issue1 and Clean_Issue2).
+2. Go to the 'Add Column' tab -> click 'Merge Columns'.
+3. Set the 'Separator' dropdown to 'Custom' and type an underscore "_" below it.
+4. Set the 'New column name' to exactly: Issues
+5. Click OK.
+6. (Optional) Highlight and Remove the intermediate category columns if you only
+   want your primary "Issues" composite column left visible.
+--------------------------------------------------------------------------------
+PHASE 6: OUTPUT AND LOCK THE LOOP (CRITICAL CLOSING STEP)
+--------------------------------------------------------------------------------
+1. In the top-left corner of the window, click the main 'Close & Load' button.
+2. Power Query will generate a brand new worksheet containing your finalized data.
+3. Locate your original 'Master_Tracker' worksheet tab (the empty one from Phase 1).
+   RIGHT-CLICK that tab and select DELETE.
+4. Go to the NEW worksheet tab just compiled by Power Query:
+   - Rename the sheet tab name to exactly: Master_Tracker
+   - Click any cell inside the table.
+   - Go to the top 'Table Design' ribbon tab.
+   - On the far left, rename the table to exactly: Master_Table
+================================================================================
+MAINTENANCE WORKFLOW
+================================================================================
+1. To Update Data: Clear old rows out of 'ServiceNow_Drop', paste your fresh export, 
+   go to 'Master_Tracker', right-click the table, and hit 'Refresh'.
+2. To Add Notes: Type freely into the 'Comment' column directly on the 
+   'Master_Tracker' sheet. The engine will preserve them perfectly on refresh.
+================================================================================ text
