@@ -1,0 +1,52 @@
+	1. Duplicate
+
+=IF(COUNTIF($A$2:[@[Number]],[@[Number]])=1,"No","Duplicate")
+
+
+	2. Closedmonth
+
+=TEXT([@Closed],"MMMM")
+
+	3. Alert/Non-Alert
+
+	=SWITCH(
+	TRUE,
+	ISNUMBER(SEARCH("Splunk",[@[Opened by]])),"Alert",
+	"Raise by User")
+	
+	4. Issue1
+
+
+	=IFERROR(
+	    INDEX(Tbl_Issue1[Category],
+	        MATCH(1,
+	            (ISNUMBER(SEARCH(Tbl_Issue1[Keyword],[@[Short description]]))) *
+	            IF(Tbl_Issue1[Keyword2]="",
+	                1,
+	                ISNUMBER(SEARCH(Tbl_Issue1[Keyword2],[@[Short description]]))
+	            ),
+	        0)
+	    ),
+	"Others Issues")
+	
+	5. Issue2
+
+
+	=IFERROR(
+	    INDEX(Tbl_Issue2[Category],
+	        MATCH(1,
+	            (ISNUMBER(SEARCH(Tbl_Issue2[Keyword],[@[Short description]]))) *
+	            IF(Tbl_Issue2[Keyword2]="",
+	                1,
+	                ISNUMBER(SEARCH(Tbl_Issue2[Keyword2],[@[Short description]]))
+	            ),
+	        0)
+	    ),
+	"Others Issues")
+	
+
+	6. Issues
+
+
+=TEXTJOIN("_", TRUE, [@Issue1], [@Issue2])
+	
